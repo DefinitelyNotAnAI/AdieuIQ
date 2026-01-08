@@ -1,0 +1,135 @@
+{
+  "$schema": "https://schemas.microsoft.com/powerbi/fabric/1.0/connection.schema.json",
+  "version": "1.0",
+  "connectionType": "FabricRealTimeIntelligence",
+  "authentication": {
+    "type": "ManagedIdentity",
+    "tenantId": "#{AZURE_TENANT_ID}#",
+    "managedIdentityClientId": "#{MANAGED_IDENTITY_CLIENT_ID}#"
+  },
+  "dataSource": {
+    "fabricWorkspaceId": "#{FABRIC_WORKSPACE_ID}#",
+    "kqlDatabaseName": "adieuiq-rtdb",
+    "oneLakeEndpoint": "https://onelake.dfs.fabric.microsoft.com/#{FABRIC_WORKSPACE_ID}#/adieuiq-rtdb.KustoDatabase",
+    "semanticLayerEndpoint": "https://api.fabric.microsoft.com/v1/workspaces/#{FABRIC_WORKSPACE_ID}#/semanticModels/adieuiq-fabric-iq"
+  },
+  "queryConfiguration": {
+    "maxRowsPerQuery": 100000,
+    "queryTimeoutSeconds": 30,
+    "enableQueryCache": true,
+    "cacheExpirationMinutes": 5
+  },
+  "refreshConfiguration": {
+    "mode": "DirectQuery",
+    "refreshLagTargetSeconds": 10,
+    "refreshSchedule": null,
+    "comment": "DirectQuery mode ensures <10s refresh lag per FR-012. No scheduled refresh needed."
+  },
+  "datasets": [
+    {
+      "name": "customer_recommendations",
+      "kqlTable": "recommendations",
+      "columns": [
+        {"name": "recommendation_id", "type": "string", "isPrimaryKey": true},
+        {"name": "customer_id", "type": "string", "indexed": true},
+        {"name": "recommendation_type", "type": "string"},
+        {"name": "recommended_products", "type": "dynamic"},
+        {"name": "reasoning", "type": "string"},
+        {"name": "confidence_score", "type": "decimal"},
+        {"name": "generated_at", "type": "datetime", "indexed": true},
+        {"name": "delivered_at", "type": "datetime"},
+        {"name": "outcome_status", "type": "string"},
+        {"name": "estimated_revenue_impact", "type": "decimal"}
+      ],
+      "partitionKey": "generated_at"
+    },
+    {
+      "name": "customer_usage_metrics",
+      "kqlTable": "usage_data",
+      "columns": [
+        {"name": "customer_id", "type": "string", "indexed": true},
+        {"name": "feature_name", "type": "string", "indexed": true},
+        {"name": "usage_count", "type": "long"},
+        {"name": "intensity_score", "type": "string"},
+        {"name": "last_used_at", "type": "datetime"},
+        {"name": "timestamp", "type": "datetime", "isPrimaryKey": true}
+      ],
+      "partitionKey": "customer_id"
+    },
+    {
+      "name": "customer_interactions",
+      "kqlTable": "interaction_events",
+      "columns": [
+        {"name": "interaction_id", "type": "string", "isPrimaryKey": true},
+        {"name": "customer_id", "type": "string", "indexed": true},
+        {"name": "event_type", "type": "string"},
+        {"name": "summary", "type": "string"},
+        {"name": "sentiment_score", "type": "decimal"},
+        {"name": "resolution_status", "type": "string"},
+        {"name": "occurred_at", "type": "datetime", "indexed": true}
+      ],
+      "partitionKey": "customer_id"
+    },
+    {
+      "name": "customer_profiles",
+      "kqlTable": "customers",
+      "columns": [
+        {"name": "customer_id", "type": "string", "isPrimaryKey": true},
+        {"name": "company_name", "type": "string", "indexed": true},
+        {"name": "industry_segment", "type": "string"},
+        {"name": "product_tier", "type": "string"},
+        {"name": "current_products", "type": "dynamic"},
+        {"name": "contact_email", "type": "string"},
+        {"name": "account_manager_email", "type": "string"}
+      ],
+      "partitionKey": "customer_id"
+    }
+  ],
+  "securityConfiguration": {
+    "rowLevelSecurity": {
+      "enabled": true,
+      "roles": [
+        {
+          "roleName": "CustomerSuccessManager",
+          "daxFilter": "[account_manager_email] = USERPRINCIPALNAME()",
+          "description": "Restricts Customer Success Managers to view only their assigned customers"
+        },
+        {
+          "roleName": "SupportAgent",
+          "daxFilter": "1=0",
+          "description": "Support Agents have no access to Power BI dashboards"
+        },
+        {
+          "roleName": "Administrator",
+          "daxFilter": "1=1",
+          "description": "Administrators can view all customer data"
+        }
+      ]
+    }
+  },
+  "monitoring": {
+    "enableQueryLogging": true,
+    "logAnalyticsWorkspaceId": "#{LOG_ANALYTICS_WORKSPACE_ID}#",
+    "alertOnRefreshLagSeconds": 15,
+    "alertRecipients": ["#{ADMIN_EMAIL}#"]
+  },
+  "comments": {
+    "deploymentNotes": [
+      "Replace all #{PLACEHOLDER}# tokens with actual values during deployment",
+      "Fabric Workspace must have Real-Time Intelligence enabled",
+      "KQL database 'adieuiq-rtdb' must be created with Eventstream ingestion configured",
+      "Managed Identity must have 'Fabric Contributor' role on workspace",
+      "Power BI Service workspace must be in same Azure AD tenant as Fabric workspace"
+    ],
+    "performanceRequirements": [
+      "FR-012: Dashboard refresh lag must be <10 seconds",
+      "DirectQuery mode ensures near-real-time data access",
+      "Query cache (5min TTL) reduces load on Fabric Real-Time Intelligence"
+    ],
+    "securityRequirements": [
+      "Principle II: Managed Identity authentication only (no service principals)",
+      "Row-level security enforced via Azure AD group membership",
+      "Purview integration tracks all dashboard access for compliance"
+    ]
+  }
+}

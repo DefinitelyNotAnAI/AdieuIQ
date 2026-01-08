@@ -1,0 +1,522 @@
+openapi: 3.0.3
+info:
+  title: Customer Recommendation API
+  description: API for customer lookup, recommendation generation, and historical interaction retrieval
+  version: 1.0.0
+  contact:
+    name: AdieuIQ Team
+
+servers:
+  - url: https://api.adieuiq.azure.com/v1
+    description: Production
+  - url: https://api-dev.adieuiq.azure.com/v1
+    description: Development
+
+security:
+  - AzureAD: []
+
+components:
+  securitySchemes:
+    AzureAD:
+      type: oauth2
+      flows:
+        implicit:
+          authorizationUrl: https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize
+          scopes:
+            api://adieuiq/Customers.Read: Read customer data
+            api://adieuiq/Recommendations.Generate: Generate recommendations
+            api://adieuiq/History.Read: Read interaction history
+
+  schemas:
+    Customer:
+      type: object
+      required:
+        - account_id
+        - company_name
+        - industry_segment
+        - product_tier
+        - subscription_start_date
+        - current_products
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        company_name:
+          type: string
+          maxLength: 200
+          example: "Contoso Ltd"
+        industry_segment:
+          type: string
+          enum: [Technology, Healthcare, Finance, Retail, Manufacturing, Other]
+        product_tier:
+          type: string
+          enum: [Basic, Professional, Enterprise]
+        subscription_start_date:
+          type: string
+          format: date-time
+        current_products:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["CRM", "Analytics", "API Gateway"]
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+        contact_phone:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    UsageData:
+      type: object
+      required:
+        - customer_id
+        - feature_name
+        - usage_count
+        - last_used_timestamp
+        - intensity_score
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        feature_name:
+          type: string
+          maxLength: 100
+        usage_count:
+          type: integer
+          minimum: 0
+        last_used_timestamp:
+          type: string
+          format: date-time
+        intensity_score:
+          type: string
+          enum: [Low, Medium, High]
+
+    InteractionEvent:
+      type: object
+      required:
+        - event_id
+        - customer_id
+        - event_type
+        - timestamp
+        - sentiment_score
+        - resolution_status
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum: [Ticket, Chat, Call]
+        timestamp:
+          type: string
+          format: date-time
+        agent_id:
+          type: string
+          nullable: true
+        sentiment_score:
+          type: number
+          format: float
+          minimum: -1.0
+          maximum: 1.0
+        topics_discussed:
+          type: array
+          items:
+            type: string
+          nullable: true
+        resolution_status:
+          type: string
+          enum: [Resolved, Pending, Escalated]
+        duration_seconds:
+          type: integer
+          minimum: 0
+          nullable: true
+
+    Recommendation:
+      type: object
+      required:
+        - recommendation_id
+        - customer_id
+        - recommendation_type
+        - text_description
+        - confidence_score
+        - data_sources
+        - generation_timestamp
+        - outcome_status
+      properties:
+        recommendation_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        recommendation_type:
+          type: string
+          enum: [Adoption, Upsell]
+        text_description:
+          type: string
+          maxLength: 1000
+        reasoning_chain:
+          type: object
+          description: Structured agent reasoning (see AgentContribution schema)
+        confidence_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        data_sources:
+          type: array
+          items:
+            type: object
+            properties:
+              source_type:
+                type: string
+                enum: [FabricIQ, FoundryIQ, UsageData]
+              source_id:
+                type: string
+              relevance_score:
+                type: number
+                format: float
+        generation_timestamp:
+          type: string
+          format: date-time
+        outcome_status:
+          type: string
+          enum: [Pending, Delivered, Accepted, Declined]
+        delivered_by_agent_id:
+          type: string
+          nullable: true
+        outcome_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+
+    AgentContribution:
+      type: object
+      required:
+        - agent_type
+        - input_data
+        - output_result
+        - confidence_score
+        - execution_time_ms
+      properties:
+        agent_type:
+          type: string
+          enum: [Retrieval, Sentiment, Reasoning, Validation]
+        input_data:
+          type: object
+        output_result:
+          type: object
+        confidence_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        execution_time_ms:
+          type: integer
+          minimum: 0
+
+    CustomerProfile:
+      type: object
+      description: Composite view combining Customer + recent UsageData + sentiment
+      required:
+        - customer
+        - usage_summary
+        - sentiment_indicators
+      properties:
+        customer:
+          $ref: '#/components/schemas/Customer'
+        usage_summary:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageData'
+          description: Last 90 days of usage data
+        sentiment_indicators:
+          type: object
+          properties:
+            average_sentiment:
+              type: number
+              format: float
+            recent_interactions_count:
+              type: integer
+            last_interaction_date:
+              type: string
+              format: date-time
+
+    Error:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+
+paths:
+  /customers/search:
+    get:
+      summary: Search for customers by account ID, email, or phone
+      description: Supports fuzzy matching (FR-001)
+      operationId: searchCustomers
+      tags:
+        - Customers
+      security:
+        - AzureAD: [api://adieuiq/Customers.Read]
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search term (account ID, email, or phone)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
+                  total_count:
+                    type: integer
+        '400':
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+  /customers/{customer_id}/profile:
+    get:
+      summary: Get customer profile with usage data and sentiment
+      description: Returns composite view (FR-002)
+      operationId: getCustomerProfile
+      tags:
+        - Customers
+      security:
+        - AzureAD: [api://adieuiq/Customers.Read]
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerProfile'
+        '404':
+          description: Customer not found
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+  /customers/{customer_id}/recommendations:
+    post:
+      summary: Generate personalized recommendations for customer
+      description: Triggers multi-agent orchestration (FR-003, FR-004, FR-008)
+      operationId: generateRecommendations
+      tags:
+        - Recommendations
+      security:
+        - AzureAD: [api://adieuiq/Recommendations.Generate]
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Recommendations generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  adoption_recommendations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recommendation'
+                    minItems: 2
+                    maxItems: 5
+                  upsell_recommendations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recommendation'
+                    minItems: 1
+                    maxItems: 3
+                  generation_time_ms:
+                    type: integer
+                    description: Time taken to generate (performance tracking)
+        '400':
+          description: Invalid request
+        '404':
+          description: Customer not found
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error (orchestration failure)
+
+  /recommendations/{recommendation_id}/explainability:
+    get:
+      summary: Get agent reasoning chain for recommendation
+      description: Returns explainability data (FR-016)
+      operationId: getRecommendationExplainability
+      tags:
+        - Recommendations
+      security:
+        - AzureAD: [api://adieuiq/Recommendations.Generate]
+      parameters:
+        - name: recommendation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Explainability data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recommendation:
+                    $ref: '#/components/schemas/Recommendation'
+                  agent_contributions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentContribution'
+        '404':
+          description: Recommendation not found
+        '401':
+          description: Unauthorized
+
+  /customers/{customer_id}/history:
+    get:
+      summary: Get historical interactions and past recommendations
+      description: Returns 12-month timeline (FR-013)
+      operationId: getCustomerHistory
+      tags:
+        - History
+      security:
+        - AzureAD: [api://adieuiq/History.Read]
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: months
+          in: query
+          schema:
+            type: integer
+            default: 12
+            minimum: 1
+            maximum: 12
+      responses:
+        '200':
+          description: Historical timeline
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  interactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InteractionEvent'
+                  past_recommendations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recommendation'
+        '404':
+          description: Customer not found
+        '401':
+          description: Unauthorized
+
+  /recommendations/{recommendation_id}/outcome:
+    put:
+      summary: Update recommendation outcome status
+      description: Marks recommendation as delivered, accepted, or declined
+      operationId: updateRecommendationOutcome
+      tags:
+        - Recommendations
+      security:
+        - AzureAD: [api://adieuiq/Recommendations.Generate]
+      parameters:
+        - name: recommendation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - outcome_status
+                - delivered_by_agent_id
+              properties:
+                outcome_status:
+                  type: string
+                  enum: [Delivered, Accepted, Declined]
+                delivered_by_agent_id:
+                  type: string
+      responses:
+        '200':
+          description: Outcome updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+        '400':
+          description: Invalid outcome status transition
+        '404':
+          description: Recommendation not found
+        '401':
+          description: Unauthorized

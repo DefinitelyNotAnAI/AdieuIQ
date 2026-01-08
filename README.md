@@ -31,19 +31,3 @@ These suggestions help customers:
 ## Ideal For
 - Solution Engineers in **MCAPS** demonstrating advanced AI capabilities.
 - Customer service teams aiming to elevate the end-of-call experience.
-
----
-
-## Quick Start
-
-### Prerequisites
-- Python 3.9+
-- Access to Fabric IQ / Foundry IQ APIs
-- GitHub account for cloning the repo
-
-### Installation
-```bash
-git clone https://github.com/your-org/adieuiq.git
-cd adieuiq
-pip install -r requirements.txt
-``

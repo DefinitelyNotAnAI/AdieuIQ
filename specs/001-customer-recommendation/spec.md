@@ -87,7 +87,7 @@ The system uses multiple AI agents (retrieval agent, sentiment analysis agent, r
 
 - **FR-001**: System MUST allow support agents to search for customers using account ID, email address, or phone number with fuzzy matching support
 - **FR-002**: System MUST retrieve and display customer profile data including current product subscriptions, usage metrics from the past 90 days, and sentiment indicators from recent interactions
-- **FR-003**: System MUST generate 2-5 personalized adoption recommendations per customer based on unused features that align with their usage patterns and industry segment
+- **FR-003**: System MUST generate 2-5 personalized adoption recommendations per customer based on unused features that align with their usage patterns and industry segment; when >5 candidates exist, rank by confidence score and select top 5; require minimum confidence threshold of 0.6 to display
 - **FR-004**: System MUST generate 1-3 upsell recommendations per customer based on usage intensity, feature limitations, and historical purchase behavior
 - **FR-005**: System MUST complete recommendation generation within 2 seconds p95 latency from profile display
 - **FR-006**: System MUST integrate with Fabric IQ semantic layer to retrieve customer usage trends, feature adoption metrics, and operational intelligence
@@ -98,8 +98,8 @@ The system uses multiple AI agents (retrieval agent, sentiment analysis agent, r
 - **FR-011**: System MUST provide a Power BI dashboard displaying adoption metrics (feature usage %, low-adoption alerts, customer segmentation) and upsell metrics (pipeline value, opportunity count, conversion rate)
 - **FR-012**: System MUST refresh dashboard data from Fabric Real-Time Intelligence with maximum 10-second lag from event occurrence
 - **FR-013**: System MUST display historical interaction timeline showing past support tickets, recommendations suggested, and outcomes (accepted/declined/pending) for the past 12 months
-- **FR-014**: System MUST prevent duplicate recommendations by checking historical record before generation
-- **FR-015**: System MUST apply sentiment-aware filtering to avoid aggressive upsell suggestions for customers with negative sentiment scores
+- **FR-014**: System MUST prevent duplicate recommendations by checking historical record before generation; exact duplicates prevented within 90 days; similar recommendations (>80% text similarity) flagged with "previously suggested on [date]" warning within 30 days
+- **FR-015**: System MUST apply sentiment-aware filtering to avoid aggressive upsell suggestions for customers with negative sentiment scores (sentiment < -0.3); for negative sentiment, suppress upsells with price increase >$5000/year or tier jumps >1 level; prioritize retention/support recommendations instead
 - **FR-016**: System MUST provide explainability interface showing which agents contributed to each recommendation, data sources referenced, and confidence scores
 - **FR-017**: System MUST implement graceful degradation when Fabric IQ or Foundry IQ services are unavailable, using cached data and displaying staleness warnings
 - **FR-018**: System MUST authenticate all users using Azure Managed Identity and enforce role-based access control (support agent, customer success manager, administrator)

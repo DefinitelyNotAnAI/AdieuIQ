@@ -23,12 +23,12 @@
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create project directory structure per plan.md (backend/, frontend/, dashboard/, infrastructure/)
-- [ ] T002 Initialize Python backend project with requirements.txt (FastAPI, Azure AI Foundry SDK, azure-identity, azure-keyvault-secrets, OpenTelemetry SDK, pytest)
-- [ ] T003 [P] Initialize TypeScript frontend project with package.json (React 18, TypeScript 5.x, @azure/msal-browser, @testing-library/react)
-- [ ] T004 [P] Configure ESLint and Prettier for frontend in frontend/.eslintrc.json and frontend/.prettierrc
-- [ ] T005 [P] Configure Black and Flake8 for backend in backend/pyproject.toml
-- [ ] T006 Create .gitignore for Python, Node.js, and Azure artifacts
+- [X] T001 Create project directory structure per plan.md (backend/, frontend/, dashboard/, infrastructure/)
+- [X] T002 Initialize Python backend project with requirements.txt (FastAPI, Azure AI Foundry SDK, azure-identity, azure-keyvault-secrets, OpenTelemetry SDK, pytest)
+- [X] T003 [P] Initialize TypeScript frontend project with package.json (React 18, TypeScript 5.x, @azure/msal-browser, @testing-library/react)
+- [X] T004 [P] Configure ESLint and Prettier for frontend in frontend/.eslintrc.json and frontend/.prettierrc
+- [X] T005 [P] Configure Black and Flake8 for backend in backend/pyproject.toml
+- [X] T006 Create .gitignore for Python, Node.js, and Azure artifacts
 
 ---
 

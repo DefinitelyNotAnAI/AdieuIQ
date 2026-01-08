@@ -1,0 +1,12 @@
+{
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended", "plugin:react-hooks/recommended"],
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["react-refresh"],
+  "root": true,
+  "rules": {
+    "react-refresh/only-export-components": [
+      "warn",
+      { "allowConstantExport": true }
+    ]
+  }
+}

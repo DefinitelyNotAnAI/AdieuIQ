@@ -11,12 +11,14 @@ Constitutional Compliance (NON-NEGOTIABLE):
 - Calculates sentiment indicators from interaction history
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import redis.asyncio as redis
 from azure.cosmos import ContainerProxy, CosmosClient
 from azure.core.credentials import TokenCredential
 from azure.identity import DefaultAzureCredential
@@ -45,13 +47,35 @@ class CustomerService:
 
     def __init__(self, credential: TokenCredential | None = None):
         """
-        Initialize service with Cosmos DB and Fabric IQ clients.
+        Initialize service with Cosmos DB, Fabric IQ, and Redis clients.
 
         Args:
             credential: Azure credential for authentication (optional, uses DefaultAzureCredential if None)
         """
         self.credential = credential or DefaultAzureCredential()
         self.fabric_client = FabricIQClient()
+
+        # Initialize Redis client (T064 - caching for customer profiles)
+        redis_hostname = os.getenv("REDIS_HOSTNAME")
+        redis_port = int(os.getenv("REDIS_PORT", "6380"))
+        redis_password = os.getenv("REDIS_ACCESS_KEY")
+        
+        if os.getenv("ENV") == "local" or not redis_hostname:
+            logger.info("Redis caching disabled (local mode or REDIS_HOSTNAME not set)")
+            self.redis_client = None
+        else:
+            try:
+                self.redis_client = redis.Redis(
+                    host=redis_hostname,
+                    port=redis_port,
+                    password=redis_password,
+                    ssl=True,
+                    decode_responses=True
+                )
+                logger.info(f"Redis client initialized: {redis_hostname}:{redis_port}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Redis client: {e}. Caching disabled.")
+                self.redis_client = None
 
         # Initialize Cosmos DB client
         if os.getenv("ENV") == "local":
@@ -144,12 +168,18 @@ class CustomerService:
         self, customer_id: UUID, include_usage: bool = True, include_sentiment: bool = True
     ) -> dict[str, Any] | None:
         """
-        Retrieve comprehensive customer profile.
+        Retrieve comprehensive customer profile with Redis caching (T064).
 
         Builds composite CustomerProfile per contracts/openapi.yaml:
         - Customer entity from Cosmos DB
         - Usage summary from Fabric IQ (if include_usage=True)
         - Sentiment indicators from interaction history (if include_sentiment=True)
+
+        Cache Strategy (per quickstart.md optimization tip):
+        - Cache key: customer_profile:{customer_id}
+        - TTL: 5 minutes (300 seconds)
+        - Cache hit: Return cached profile
+        - Cache miss: Fetch from sources, store in cache
 
         Args:
             customer_id: Target customer identifier
@@ -167,6 +197,22 @@ class CustomerService:
             if os.getenv("ENV") == "local":
                 # Mock mode: return sample profile
                 return await self._get_mock_profile(customer_id)
+
+            # Try Redis cache first (T064)
+            cache_key = f"customer_profile:{customer_id}"
+            if self.redis_client:
+                try:
+                    cached_profile = await self.redis_client.get(cache_key)
+                    if cached_profile:
+                        logger.info(f"Cache HIT for customer {customer_id}")
+                        span.set_attribute("cache_hit", True)
+                        return json.loads(cached_profile)
+                    else:
+                        logger.debug(f"Cache MISS for customer {customer_id}")
+                        span.set_attribute("cache_hit", False)
+                except Exception as e:
+                    logger.warning(f"Redis cache read failed: {e}. Proceeding without cache.")
+                    span.set_attribute("cache_error", str(e))
 
             try:
                 # Fetch customer entity
@@ -193,6 +239,19 @@ class CustomerService:
                         customer_id
                     )
                     profile["sentiment_indicators"] = sentiment_indicators
+
+                # Store in Redis cache with 5-minute TTL (T064)
+                if self.redis_client:
+                    try:
+                        await self.redis_client.setex(
+                            cache_key,
+                            300,  # 5 minutes TTL per quickstart.md
+                            json.dumps(profile, default=str)  # default=str handles datetime serialization
+                        )
+                        logger.debug(f"Cached customer profile {customer_id} for 5 minutes")
+                    except Exception as e:
+                        logger.warning(f"Redis cache write failed: {e}")
+                        span.set_attribute("cache_write_error", str(e))
 
                 logger.info(f"Retrieved customer profile for {customer_id}")
                 span.set_attribute("found", True)
@@ -465,6 +524,136 @@ class CustomerService:
 
         logger.info(f"Mock mode: returning {len(mock_customers)} sample customers")
         return mock_customers
+
+    async def get_historical_interactions(
+        self, customer_id: UUID, months: int = 12
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve past 12 months of InteractionEvents from Cosmos DB.
+
+        Returns interaction history sorted chronologically (most recent first).
+        Per FR-013, supports retrieving up to 12 months of history.
+
+        Args:
+            customer_id: Target customer identifier
+            months: Number of months of history (1-12, default 12)
+
+        Returns:
+            List of InteractionEvent dictionaries sorted by timestamp descending
+
+        Raises:
+            ValueError: If months is not in range 1-12
+        """
+        if not 1 <= months <= 12:
+            raise ValueError("months must be between 1 and 12")
+
+        with tracer.start_as_current_span("customer_service.get_historical_interactions") as span:
+            span.set_attribute("customer_id", str(customer_id))
+            span.set_attribute("months", months)
+
+            # Mock mode for local development
+            if os.getenv("ENV") == "local":
+                logger.info(f"Mock mode: returning mock interactions for customer {customer_id}")
+                return await self._get_mock_interactions(customer_id, months)
+
+            try:
+                # Calculate time window
+                cutoff_date = datetime.utcnow() - timedelta(days=months * 30)
+                
+                # Query Cosmos DB for interactions within time window
+                query = """
+                    SELECT * FROM c 
+                    WHERE c.customer_id = @customer_id 
+                    AND c.timestamp >= @cutoff_date
+                    ORDER BY c.timestamp DESC
+                """
+                parameters = [
+                    {"name": "@customer_id", "value": str(customer_id)},
+                    {"name": "@cutoff_date", "value": cutoff_date.isoformat()}
+                ]
+
+                interactions = list(
+                    self.interactions_container.query_items(
+                        query=query,
+                        parameters=parameters,
+                        enable_cross_partition_query=True
+                    )
+                )
+
+                logger.info(f"Retrieved {len(interactions)} interactions for customer {customer_id}")
+                span.set_attribute("interaction_count", len(interactions))
+                
+                return interactions
+
+            except Exception as e:
+                logger.error(f"Failed to retrieve interactions for customer {customer_id}: {e}", exc_info=True)
+                span.set_attribute("error", str(e))
+                raise RuntimeError(f"Failed to retrieve interaction history: {e}") from e
+
+    async def _get_mock_interactions(self, customer_id: UUID, months: int) -> list[dict[str, Any]]:
+        """
+        Return mock interaction events for local development.
+
+        Args:
+            customer_id: Target customer identifier
+            months: Number of months of history
+
+        Returns:
+            List of mock InteractionEvent dictionaries
+        """
+        now = datetime.utcnow()
+        mock_interactions = [
+            {
+                "event_id": "evt-001",
+                "customer_id": str(customer_id),
+                "event_type": "SupportTicket",
+                "timestamp": (now - timedelta(days=5)).isoformat(),
+                "description": "Customer reported issue with API rate limiting",
+                "sentiment_score": 0.3,
+                "resolution_status": "Resolved",
+                "tags": ["api", "rate-limiting"]
+            },
+            {
+                "event_id": "evt-002",
+                "customer_id": str(customer_id),
+                "event_type": "PhoneCall",
+                "timestamp": (now - timedelta(days=15)).isoformat(),
+                "description": "Customer inquired about enterprise features",
+                "sentiment_score": 0.7,
+                "resolution_status": "Resolved",
+                "tags": ["sales", "enterprise"]
+            },
+            {
+                "event_id": "evt-003",
+                "customer_id": str(customer_id),
+                "event_type": "ChatInteraction",
+                "timestamp": (now - timedelta(days=30)).isoformat(),
+                "description": "Quick question about dashboard configuration",
+                "sentiment_score": 0.8,
+                "resolution_status": "Resolved",
+                "tags": ["dashboard", "configuration"]
+            },
+            {
+                "event_id": "evt-004",
+                "customer_id": str(customer_id),
+                "event_type": "SupportTicket",
+                "timestamp": (now - timedelta(days=60)).isoformat(),
+                "description": "Performance issues with data export feature",
+                "sentiment_score": 0.2,
+                "resolution_status": "Resolved",
+                "tags": ["performance", "export"]
+            }
+        ]
+
+        # Filter by months
+        cutoff_date = now - timedelta(days=months * 30)
+        filtered = [
+            i for i in mock_interactions
+            if datetime.fromisoformat(i["timestamp"]) >= cutoff_date
+        ]
+
+        logger.info(f"Mock mode: returning {len(filtered)} interactions for customer {customer_id}")
+        return filtered
 
     async def _get_mock_profile(self, customer_id: UUID) -> dict[str, Any]:
         """

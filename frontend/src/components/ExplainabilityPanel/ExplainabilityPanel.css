@@ -1,0 +1,402 @@
+/* Explainability Panel Component Styles */
+
+.explainability-panel {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  max-width: 900px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+/* Panel Header */
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid #e0e0e0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 32px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.close-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Panel Description */
+.panel-description {
+  padding: 20px 24px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.panel-description p {
+  margin: 0;
+  color: #424242;
+  line-height: 1.6;
+}
+
+/* Agents Container */
+.agents-container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Agent Card */
+.agent-card {
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-left: 4px solid #1976d2;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.agent-card:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.agent-card.expanded {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Agent Header */
+.agent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.agent-header:hover {
+  background-color: #f5f5f5;
+}
+
+.agent-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.agent-icon {
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.agent-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #212121;
+}
+
+.expand-icon {
+  color: #757575;
+  font-size: 14px;
+  transition: transform 0.2s;
+}
+
+/* Confidence Badge */
+.confidence-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.confidence-high {
+  background-color: #c8e6c9;
+  color: #2e7d32;
+}
+
+.confidence-medium {
+  background-color: #fff9c4;
+  color: #f57f17;
+}
+
+.confidence-low {
+  background-color: #ffcdd2;
+  color: #c62828;
+}
+
+/* Agent Details */
+.agent-details {
+  padding: 0 16px 16px 16px;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}
+
+/* Agent Metadata */
+.agent-metadata {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+}
+
+.metadata-item {
+  font-size: 13px;
+  color: #616161;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Agent Section */
+.agent-section {
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #424242;
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* JSON Data Display */
+.json-data {
+  background-color: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+.json-entry {
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.json-entry:last-child {
+  margin-bottom: 0;
+}
+
+.json-key {
+  color: #1976d2;
+  font-weight: 600;
+}
+
+.json-value {
+  color: #424242;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Data Sources (Retrieval Agent) */
+.data-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-source-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  border-left: 3px solid #1976d2;
+}
+
+.source-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.source-details {
+  flex: 1;
+}
+
+.source-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #212121;
+  margin-bottom: 4px;
+}
+
+.source-timestamp {
+  font-size: 12px;
+  color: #757575;
+}
+
+/* Panel Footer */
+.panel-footer {
+  padding: 16px 24px;
+  background-color: #f5f5f5;
+  border-top: 1px solid #e0e0e0;
+}
+
+.footer-note {
+  margin: 0;
+  font-size: 13px;
+  color: #616161;
+  line-height: 1.6;
+}
+
+.footer-note strong {
+  color: #424242;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .panel-header {
+    padding: 16px;
+  }
+
+  .panel-header h2 {
+    font-size: 20px;
+  }
+
+  .agent-header {
+    padding: 12px;
+  }
+
+  .agent-name {
+    font-size: 14px;
+  }
+
+  .agent-icon {
+    font-size: 20px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .agent-metadata {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .json-data {
+    font-size: 12px;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .explainability-panel {
+    background: #1e1e1e;
+  }
+
+  .agent-card {
+    background: #2d2d2d;
+    border-color: #3d3d3d;
+  }
+
+  .agent-header:hover {
+    background-color: #3d3d3d;
+  }
+
+  .agent-name {
+    color: #e0e0e0;
+  }
+
+  .panel-description {
+    background-color: #2d2d2d;
+    border-color: #3d3d3d;
+  }
+
+  .panel-description p {
+    color: #b0b0b0;
+  }
+
+  .agent-metadata {
+    background-color: #2d2d2d;
+  }
+
+  .metadata-item {
+    color: #b0b0b0;
+  }
+
+  .section-title {
+    color: #e0e0e0;
+  }
+
+  .json-data {
+    background-color: #2d2d2d;
+    border-color: #3d3d3d;
+  }
+
+  .json-key {
+    color: #64b5f6;
+  }
+
+  .json-value {
+    color: #e0e0e0;
+  }
+
+  .data-source-item {
+    background-color: #2d2d2d;
+  }
+
+  .source-title {
+    color: #e0e0e0;
+  }
+
+  .source-timestamp {
+    color: #b0b0b0;
+  }
+
+  .panel-footer {
+    background-color: #2d2d2d;
+    border-color: #3d3d3d;
+  }
+
+  .footer-note {
+    color: #b0b0b0;
+  }
+
+  .footer-note strong {
+    color: #e0e0e0;
+  }
+}

@@ -14,10 +14,12 @@ Constitutional Compliance (NON-NEGOTIABLE):
 
 import asyncio
 import logging
+import os
 from typing import Any
 from uuid import UUID, uuid4
 
 from azure.core.credentials import TokenCredential
+from azure.cosmos import ContainerProxy, CosmosClient
 from azure.identity import DefaultAzureCredential
 
 from ...core.observability import get_tracer
@@ -59,10 +61,28 @@ class RecommendationOrchestrator:
         self.reasoning_agent = ReasoningAgent()
         self.validation_agent = ValidationAgent()
 
+        # Initialize Cosmos DB client for agent contributions (T061)
+        if os.getenv("ENV") == "local":
+            logger.info("Orchestrator running in local mock mode (no Cosmos DB)")
+            self.cosmos_client = None
+            self.agent_contributions_container = None
+        else:
+            cosmos_endpoint = os.getenv("COSMOS_DB_ENDPOINT")
+            if not cosmos_endpoint:
+                raise ValueError("COSMOS_DB_ENDPOINT environment variable not set")
+
+            self.cosmos_client = CosmosClient(
+                url=cosmos_endpoint, credential=self.credential
+            )
+            database = self.cosmos_client.get_database_client("adieuiq")
+            self.agent_contributions_container: ContainerProxy = (
+                database.get_container_client("agent-contributions")
+            )
+
         logger.info("RecommendationOrchestrator initialized with 4 agents")
 
     async def generate_recommendations(
-        self, customer_id: UUID, days: int = 90
+        self, customer_id: UUID, days: int = 90, past_recommendations: list[dict[str, Any]] | None = None
     ) -> dict[str, Any]:
         """
         Generate validated recommendations for a customer.
@@ -70,9 +90,12 @@ class RecommendationOrchestrator:
         Orchestrates all agents in correct sequence, logs reasoning chains,
         and returns validated recommendations with full audit trail.
 
+        Per US3/T057, accepts past_recommendations to enable duplicate detection in ReasoningAgent.
+
         Args:
             customer_id: Target customer identifier
             days: Number of days to look back for data (default 90)
+            past_recommendations: Historical recommendations for duplicate detection (optional, from T055)
 
         Returns:
             Dictionary containing:
@@ -109,11 +132,11 @@ class RecommendationOrchestrator:
                         retrieval_task, sentiment_task
                     )
 
-                # Phase 2: Sequential execution (Reasoning uses Phase 1 outputs)
+                # Phase 2: Sequential execution (Reasoning uses Phase 1 outputs + past recommendations)
                 logger.info(f"Phase 2: Reasoning agent for customer {customer_id}")
                 with tracer.start_as_current_span("phase2_reasoning"):
                     reasoning_result = await self.reasoning_agent.run(
-                        customer_id, retrieval_result, sentiment_result
+                        customer_id, retrieval_result, sentiment_result, past_recommendations
                     )
 
                 # Phase 3: Sequential execution (Validation uses Phase 2 outputs)
@@ -325,13 +348,179 @@ class RecommendationOrchestrator:
             )
         )
 
-        # TODO: Store contributions in Cosmos DB for persistence
-        # Reference: Store with recommendation document or separate contributions container
-        logger.info(
-            f"Logged {len(contributions)} agent contributions for recommendation {recommendation_id}"
-        )
+        # Store contributions in Cosmos DB for persistence (T061)
+        if os.getenv("ENV") != "local" and self.agent_contributions_container:
+            try:
+                for contribution in contributions:
+                    # Convert to dict for Cosmos DB storage
+                    contribution_doc = contribution.model_dump()
+                    contribution_doc["id"] = str(contribution.contribution_id)
+                    contribution_doc["contribution_id"] = str(contribution.contribution_id)
+                    contribution_doc["recommendation_id"] = str(contribution.recommendation_id)
+                    contribution_doc["agent_type"] = contribution.agent_type.value
+                    contribution_doc["created_at"] = contribution.created_at.isoformat()
+
+                    # Use recommendation_id as partition key for efficient retrieval
+                    self.agent_contributions_container.upsert_item(
+                        body=contribution_doc,
+                        partition_key=str(contribution.recommendation_id)
+                    )
+
+                logger.info(
+                    f"Stored {len(contributions)} agent contributions in Cosmos DB for recommendation {recommendation_id}"
+                )
+            except Exception as e:
+                # Non-critical: log warning but don't fail orchestration
+                logger.warning(f"Failed to store agent contributions: {e}", exc_info=True)
+        else:
+            logger.info(
+                f"Mock mode: logged {len(contributions)} agent contributions (not stored) for recommendation {recommendation_id}"
+            )
 
         return contributions
+
+    async def get_agent_contributions(
+        self, recommendation_id: UUID
+    ) -> list[AgentContribution]:
+        """
+        Retrieve agent contributions for a recommendation (T061).
+
+        Used by explainability endpoint (T060) to show reasoning chain.
+
+        Args:
+            recommendation_id: Target recommendation identifier
+
+        Returns:
+            List of AgentContribution objects
+
+        Raises:
+            RuntimeError: If retrieval fails
+        """
+        with tracer.start_as_current_span("orchestrator.get_agent_contributions") as span:
+            span.set_attribute("recommendation_id", str(recommendation_id))
+
+            # Mock mode for local development
+            if os.getenv("ENV") == "local" or not self.agent_contributions_container:
+                logger.info(f"Mock mode: returning sample agent contributions for recommendation {recommendation_id}")
+                return self._get_mock_agent_contributions(recommendation_id)
+
+            try:
+                # Query Cosmos DB with partition key optimization
+                query = """
+                    SELECT * FROM c 
+                    WHERE c.recommendation_id = @recommendation_id
+                    ORDER BY c.created_at ASC
+                """
+                parameters = [
+                    {"name": "@recommendation_id", "value": str(recommendation_id)}
+                ]
+
+                items = list(
+                    self.agent_contributions_container.query_items(
+                        query=query,
+                        parameters=parameters,
+                        partition_key=str(recommendation_id)
+                    )
+                )
+
+                # Convert to AgentContribution objects
+                contributions = []
+                for item in items:
+                    # Convert string values back to proper types
+                    item["agent_type"] = AgentType(item["agent_type"])
+                    contributions.append(AgentContribution(**item))
+
+                logger.info(
+                    f"Retrieved {len(contributions)} agent contributions for recommendation {recommendation_id}"
+                )
+                span.set_attribute("contribution_count", len(contributions))
+
+                return contributions
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to retrieve agent contributions for recommendation {recommendation_id}: {e}",
+                    exc_info=True
+                )
+                span.set_attribute("error", str(e))
+                raise RuntimeError(f"Failed to retrieve agent contributions: {e}") from e
+
+    def _get_mock_agent_contributions(
+        self, recommendation_id: UUID
+    ) -> list[AgentContribution]:
+        """
+        Return mock agent contributions for local development.
+
+        Args:
+            recommendation_id: Target recommendation identifier
+
+        Returns:
+            List of mock AgentContribution objects
+        """
+        from datetime import datetime
+
+        return [
+            AgentContribution(
+                contribution_id=uuid4(),
+                recommendation_id=recommendation_id,
+                agent_type=AgentType.RETRIEVAL,
+                input_data={"days": 90},
+                output_result={
+                    "usage_data_count": 5,
+                    "knowledge_article_count": 3,
+                    "confidence": 0.85
+                },
+                confidence_score=0.85,
+                execution_time_ms=150,
+                created_at=datetime.utcnow()
+            ),
+            AgentContribution(
+                contribution_id=uuid4(),
+                recommendation_id=recommendation_id,
+                agent_type=AgentType.SENTIMENT,
+                input_data={"days": 90},
+                output_result={
+                    "sentiment_score": 0.65,
+                    "sentiment_factors": ["positive_engagement", "recent_resolution"],
+                    "interaction_count": 8
+                },
+                confidence_score=0.75,
+                execution_time_ms=120,
+                created_at=datetime.utcnow()
+            ),
+            AgentContribution(
+                contribution_id=uuid4(),
+                recommendation_id=recommendation_id,
+                agent_type=AgentType.REASONING,
+                input_data={
+                    "usage_data_count": 5,
+                    "knowledge_article_count": 3,
+                    "sentiment_score": 0.65
+                },
+                output_result={
+                    "adoption_candidates": 3,
+                    "upsell_candidates": 2,
+                    "reasoning_metadata": {"filtered_count": 1}
+                },
+                confidence_score=0.0,
+                execution_time_ms=200,
+                created_at=datetime.utcnow()
+            ),
+            AgentContribution(
+                contribution_id=uuid4(),
+                recommendation_id=recommendation_id,
+                agent_type=AgentType.VALIDATION,
+                input_data={"candidate_count": 5},
+                output_result={
+                    "validated_count": 4,
+                    "blocked_count": 1,
+                    "validation_summary": {"content_safety_blocks": 0, "duplicate_blocks": 1}
+                },
+                confidence_score=1.0,
+                execution_time_ms=100,
+                created_at=datetime.utcnow()
+            )
+        ]
 
     async def _graceful_degradation(
         self, customer_id: UUID, error_message: str, start_time: float

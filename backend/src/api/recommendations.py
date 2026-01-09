@@ -389,11 +389,45 @@ async def get_recommendation_explainability(
         span.set_attribute("recommendation_id", str(recommendation_id))
         span.set_attribute("user_id", current_user.get("sub"))
 
-        # TODO: Implement explainability retrieval (T060 - User Story 4)
-        # This requires storing AgentContribution records in Cosmos DB during orchestration
-        logger.warning("Explainability endpoint not yet implemented (T060)")
+        try:
+            logger.info(
+                f"Fetching explainability for recommendation {recommendation_id}",
+                extra={"user_id": current_user.get("sub")}
+            )
 
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Explainability feature will be implemented in User Story 4 (T060)",
-        )
+            # Initialize recommendation service
+            recommendation_service = RecommendationService()
+
+            # Retrieve recommendation with agent contributions (T060)
+            result = await recommendation_service.get_recommendation_explainability(
+                recommendation_id
+            )
+
+            if not result:
+                logger.warning(f"Recommendation {recommendation_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Recommendation {recommendation_id} not found"
+                )
+
+            logger.info(
+                f"Successfully retrieved explainability for {recommendation_id}: "
+                f"{len(result.get('agent_contributions', []))} contributions"
+            )
+            span.set_attribute("contribution_count", len(result.get("agent_contributions", [])))
+
+            return result
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to retrieve explainability for {recommendation_id}: {e}",
+                exc_info=True
+            )
+            span.set_attribute("error", str(e))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to retrieve explainability: {str(e)}"
+            ) from e
+

@@ -125,9 +125,16 @@ class RecommendationService:
             span.set_attribute("cache_hit", False)
 
             try:
-                # Generate fresh recommendations via orchestrator
+                # Fetch past recommendations for duplicate detection (US3/T057)
+                logger.info(f"Fetching past recommendations for customer {customer_id} (for duplicate detection)")
+                past_recommendations = await self.get_past_recommendations(customer_id, months=12)
+                logger.info(f"Found {len(past_recommendations)} past recommendations for duplicate detection")
+
+                # Generate fresh recommendations via orchestrator (pass past_recommendations for FR-014)
                 logger.info(f"Generating fresh recommendations for customer {customer_id}")
-                result = await self.orchestrator.generate_recommendations(customer_id)
+                result = await self.orchestrator.generate_recommendations(
+                    customer_id, past_recommendations=past_recommendations
+                )
 
                 # Cache results in Cosmos DB (12-month TTL per data-model.md)
                 await self._cache_recommendations(customer_id, result)
@@ -413,6 +420,291 @@ class RecommendationService:
         except Exception as e:
             # Non-critical failure: log warning but don't fail the request
             logger.warning(f"Failed to cache recommendations: {e}", exc_info=True)
+
+    async def get_past_recommendations(
+        self, customer_id: UUID, months: int = 12
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve past 12 months of Recommendations with outcomes.
+
+        Returns recommendations sorted chronologically (most recent first).
+        Per FR-013, supports retrieving up to 12 months of history.
+
+        Args:
+            customer_id: Target customer identifier
+            months: Number of months of history (1-12, default 12)
+
+        Returns:
+            List of Recommendation dictionaries with outcomes, sorted by generation_timestamp descending
+
+        Raises:
+            ValueError: If months is not in range 1-12
+        """
+        if not 1 <= months <= 12:
+            raise ValueError("months must be between 1 and 12")
+
+        with tracer.start_as_current_span("recommendation_service.get_past_recommendations") as span:
+            span.set_attribute("customer_id", str(customer_id))
+            span.set_attribute("months", months)
+
+            # Mock mode for local development
+            if os.getenv("ENV") == "local":
+                logger.info(f"Mock mode: returning mock past recommendations for customer {customer_id}")
+                return await self._get_mock_past_recommendations(customer_id, months)
+
+            try:
+                # Calculate time window
+                cutoff_date = datetime.utcnow() - timedelta(days=months * 30)
+                
+                # Query Cosmos DB for recommendations within time window
+                query = """
+                    SELECT * FROM c 
+                    WHERE c.customer_id = @customer_id 
+                    AND c.generation_timestamp >= @cutoff_date
+                    ORDER BY c.generation_timestamp DESC
+                """
+                parameters = [
+                    {"name": "@customer_id", "value": str(customer_id)},
+                    {"name": "@cutoff_date", "value": cutoff_date.isoformat()}
+                ]
+
+                recommendations = list(
+                    self.recommendations_container.query_items(
+                        query=query,
+                        parameters=parameters,
+                        partition_key=str(customer_id)
+                    )
+                )
+
+                logger.info(f"Retrieved {len(recommendations)} past recommendations for customer {customer_id}")
+                span.set_attribute("recommendation_count", len(recommendations))
+                
+                return recommendations
+
+            except Exception as e:
+                logger.error(f"Failed to retrieve past recommendations for customer {customer_id}: {e}", exc_info=True)
+                span.set_attribute("error", str(e))
+                raise RuntimeError(f"Failed to retrieve past recommendations: {e}") from e
+
+    async def _get_mock_past_recommendations(self, customer_id: UUID, months: int) -> list[dict[str, Any]]:
+        """
+        Return mock past recommendations for local development.
+
+        Args:
+            customer_id: Target customer identifier
+            months: Number of months of history
+
+        Returns:
+            List of mock Recommendation dictionaries
+        """
+        now = datetime.utcnow()
+        mock_recommendations = [
+            {
+                "recommendation_id": "rec-001",
+                "customer_id": str(customer_id),
+                "recommendation_type": "Adoption",
+                "recommendation_text": "Enable Advanced Reporting feature for better insights",
+                "confidence_score": 0.85,
+                "reasoning_chain": {
+                    "retrieval": "Customer has high usage of Dashboard Analytics",
+                    "sentiment": "Positive sentiment, no recent issues",
+                    "reasoning": "Advanced Reporting complements current dashboard usage"
+                },
+                "generation_timestamp": (now - timedelta(days=10)).isoformat(),
+                "outcome_status": "Accepted",
+                "delivered_by_agent_id": "agent-123",
+                "outcome_timestamp": (now - timedelta(days=8)).isoformat()
+            },
+            {
+                "recommendation_id": "rec-002",
+                "customer_id": str(customer_id),
+                "recommendation_type": "Upsell",
+                "recommendation_text": "Upgrade to Enterprise Plus tier for advanced security features",
+                "confidence_score": 0.72,
+                "reasoning_chain": {
+                    "retrieval": "Customer inquired about enterprise features",
+                    "sentiment": "Positive engagement with sales team",
+                    "reasoning": "Enterprise Plus provides security enhancements"
+                },
+                "generation_timestamp": (now - timedelta(days=25)).isoformat(),
+                "outcome_status": "Declined",
+                "delivered_by_agent_id": "agent-456",
+                "outcome_timestamp": (now - timedelta(days=23)).isoformat()
+            },
+            {
+                "recommendation_id": "rec-003",
+                "customer_id": str(customer_id),
+                "recommendation_type": "Adoption",
+                "recommendation_text": "Try the new Custom Workflows feature for automation",
+                "confidence_score": 0.78,
+                "reasoning_chain": {
+                    "retrieval": "Customer has medium usage of API Integration",
+                    "sentiment": "Improving sentiment trend",
+                    "reasoning": "Custom Workflows can automate API-based tasks"
+                },
+                "generation_timestamp": (now - timedelta(days=45)).isoformat(),
+                "outcome_status": "Delivered",
+                "delivered_by_agent_id": "agent-789",
+                "outcome_timestamp": (now - timedelta(days=44)).isoformat()
+            },
+            {
+                "recommendation_id": "rec-004",
+                "customer_id": str(customer_id),
+                "recommendation_type": "Adoption",
+                "recommendation_text": "Enable Data Export feature for reporting needs",
+                "confidence_score": 0.68,
+                "reasoning_chain": {
+                    "retrieval": "Customer has low usage of Data Export",
+                    "sentiment": "Previous performance issues resolved",
+                    "reasoning": "Data Export complements existing workflows"
+                },
+                "generation_timestamp": (now - timedelta(days=70)).isoformat(),
+                "outcome_status": "Pending",
+                "delivered_by_agent_id": None,
+                "outcome_timestamp": None
+            }
+        ]
+
+        # Filter by months
+        cutoff_date = now - timedelta(days=months * 30)
+        filtered = [
+            r for r in mock_recommendations
+            if datetime.fromisoformat(r["generation_timestamp"]) >= cutoff_date
+        ]
+
+        logger.info(f"Mock mode: returning {len(filtered)} past recommendations for customer {customer_id}")
+        return filtered
+
+    async def get_recommendation_explainability(
+        self, recommendation_id: UUID
+    ) -> dict[str, Any]:
+        """
+        Retrieve recommendation with agent contributions for explainability (T060).
+
+        Returns full reasoning chain with all agent contributions:
+        - Retrieval Agent: Data sources and retrieval confidence
+        - Sentiment Agent: Sentiment analysis and factors
+        - Reasoning Agent: Candidate generation logic
+        - Validation Agent: Filtering and validation results
+
+        Args:
+            recommendation_id: Target recommendation identifier
+
+        Returns:
+            Dictionary with recommendation and agent_contributions array
+
+        Raises:
+            RuntimeError: If retrieval fails
+        """
+        with tracer.start_as_current_span("recommendation_service.get_explainability") as span:
+            span.set_attribute("recommendation_id", str(recommendation_id))
+
+            try:
+                # Fetch recommendation from Cosmos DB
+                recommendation = await self.get_recommendation_by_id(recommendation_id)
+                if not recommendation:
+                    logger.warning(f"Recommendation {recommendation_id} not found")
+                    return None
+
+                # Fetch agent contributions from orchestrator
+                agent_contributions = await self.orchestrator.get_agent_contributions(
+                    recommendation_id
+                )
+
+                logger.info(
+                    f"Retrieved explainability for recommendation {recommendation_id}: "
+                    f"{len(agent_contributions)} agent contributions"
+                )
+                span.set_attribute("contribution_count", len(agent_contributions))
+
+                return {
+                    "recommendation": recommendation,
+                    "agent_contributions": [
+                        {
+                            "contribution_id": str(c.contribution_id),
+                            "agent_type": c.agent_type.value,
+                            "input_data": c.input_data,
+                            "output_result": c.output_result,
+                            "confidence_score": c.confidence_score,
+                            "execution_time_ms": c.execution_time_ms,
+                            "created_at": c.created_at.isoformat()
+                        }
+                        for c in agent_contributions
+                    ]
+                }
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to retrieve explainability for recommendation {recommendation_id}: {e}",
+                    exc_info=True
+                )
+                span.set_attribute("error", str(e))
+                raise RuntimeError(f"Failed to retrieve explainability: {e}") from e
+
+    async def get_recommendation_by_id(self, recommendation_id: UUID) -> dict[str, Any] | None:
+        """
+        Retrieve a single recommendation by ID.
+
+        Args:
+            recommendation_id: Target recommendation identifier
+
+        Returns:
+            Recommendation dictionary or None if not found
+        """
+        with tracer.start_as_current_span("recommendation_service.get_by_id") as span:
+            span.set_attribute("recommendation_id", str(recommendation_id))
+
+            # Mock mode for local development
+            if os.getenv("ENV") == "local":
+                logger.info(f"Mock mode: returning mock recommendation for {recommendation_id}")
+                return {
+                    "recommendation_id": str(recommendation_id),
+                    "customer_id": "550e8400-e29b-41d4-a716-446655440001",
+                    "recommendation_type": "Adoption",
+                    "text_description": "Enable Advanced Reporting feature for better insights",
+                    "confidence_score": 0.85,
+                    "reasoning_chain": {
+                        "retrieval": "Customer has high usage of Dashboard Analytics",
+                        "sentiment": "Positive sentiment, no recent issues",
+                        "reasoning": "Advanced Reporting complements current dashboard usage"
+                    },
+                    "generation_timestamp": datetime.utcnow().isoformat(),
+                    "outcome_status": "Pending"
+                }
+
+            try:
+                # Query Cosmos DB by document id
+                # Note: We need to query across partitions since we don't have customer_id
+                query = """
+                    SELECT * FROM c 
+                    WHERE c.recommendation_id = @recommendation_id
+                """
+                parameters = [
+                    {"name": "@recommendation_id", "value": str(recommendation_id)}
+                ]
+
+                items = list(
+                    self.recommendations_container.query_items(
+                        query=query,
+                        parameters=parameters,
+                        enable_cross_partition_query=True
+                    )
+                )
+
+                if not items:
+                    logger.warning(f"Recommendation {recommendation_id} not found")
+                    return None
+
+                logger.info(f"Retrieved recommendation {recommendation_id}")
+                return items[0]
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to retrieve recommendation {recommendation_id}: {e}",
+                    exc_info=True
+                )
+                span.set_attribute("error", str(e))
+                raise RuntimeError(f"Failed to retrieve recommendation: {e}") from e
 
     async def _graceful_degradation_result(
         self, customer_id: UUID, error_message: str

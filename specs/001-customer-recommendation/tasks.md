@@ -125,12 +125,12 @@
 
 **Independent Test**: View customer with 100+ interactions, verify timeline loads within 3s, confirm past recommendations show outcomes (accepted/declined/pending)
 
-- [ ] T054 [P] [US3] Create historical interaction query in backend/src/services/customer_service.py (retrieve past 12 months of InteractionEvents from Cosmos DB, sort chronologically)
-- [ ] T055 [P] [US3] Create past recommendations query in backend/src/services/recommendation_service.py (retrieve past 12 months of Recommendations with outcomes, filter by customer_id)
-- [ ] T056 [US3] Create customer history endpoint in backend/src/api/history.py GET /customers/{customer_id}/history (return interactions + past_recommendations per contracts/openapi.yaml, support months query param)
-- [ ] T057 [US3] Update Reasoning Agent in backend/src/services/orchestration/reasoning_agent.py (check for previously declined recommendations per FR-014, flag duplicates or provide re-suggesting reasoning)
-- [ ] T058 [P] [US3] Create HistoryTimeline component in frontend/src/components/HistoryTimeline/HistoryTimeline.tsx (chronological display of tickets/chats/calls, recommendation events, outcome status badges)
-- [ ] T059 [US3] Update CustomerDetail page in frontend/src/pages/CustomerDetail.tsx (add history tab, lazy load timeline when tab is clicked per quickstart.md optimization tip)
+- [X] T054 [P] [US3] Create historical interaction query in backend/src/services/customer_service.py (retrieve past 12 months of InteractionEvents from Cosmos DB, sort chronologically)
+- [X] T055 [P] [US3] Create past recommendations query in backend/src/services/recommendation_service.py (retrieve past 12 months of Recommendations with outcomes, filter by customer_id)
+- [X] T056 [US3] Create customer history endpoint in backend/src/api/history.py GET /customers/{customer_id}/history (return interactions + past_recommendations per contracts/openapi.yaml, support months query param)
+- [X] T057 [US3] Update Reasoning Agent in backend/src/services/orchestration/reasoning_agent.py (check for previously declined recommendations per FR-014, flag duplicates or provide re-suggesting reasoning)
+- [X] T058 [P] [US3] Create HistoryTimeline component in frontend/src/components/HistoryTimeline/HistoryTimeline.tsx (chronological display of tickets/chats/calls, recommendation events, outcome status badges)
+- [X] T059 [US3] Update CustomerDetail page in frontend/src/pages/CustomerDetail.tsx (add history tab, lazy load timeline when tab is clicked per quickstart.md optimization tip)
 
 **Checkpoint**: User Story 3 complete - agents can view historical context to improve recommendation quality
 
@@ -142,10 +142,10 @@
 
 **Independent Test**: Generate recommendation, click "Show reasoning", verify explainability panel shows all agent contributions (Retrieval, Sentiment, Reasoning, Validation) with data sources and confidence scores
 
-- [ ] T060 [P] [US4] Create explainability endpoint in backend/src/api/recommendations.py GET /recommendations/{recommendation_id}/explainability (return recommendation + agent_contributions per contracts/openapi.yaml)
-- [ ] T061 [US4] Update orchestrator in backend/src/services/orchestration/orchestrator.py (_log_agent_contributions method to store AgentContribution records in Cosmos DB with input_data, output_result, confidence_score, execution_time_ms)
-- [ ] T062 [P] [US4] Create ExplainabilityPanel component in frontend/src/components/ExplainabilityPanel/ExplainabilityPanel.tsx (agent breakdown with icons for each agent type, collapsible sections for input/output, data source references with timestamps, confidence score visualizations)
-- [ ] T063 [US4] Update RecommendationDetail component in frontend/src/components/RecommendationDetail/RecommendationDetail.tsx (add "Show reasoning" button, modal/drawer to display ExplainabilityPanel)
+- [X] T060 [P] [US4] Create explainability endpoint in backend/src/api/recommendations.py GET /recommendations/{recommendation_id}/explainability (return recommendation + agent_contributions per contracts/openapi.yaml)
+- [X] T061 [US4] Update orchestrator in backend/src/services/orchestration/orchestrator.py (_log_agent_contributions method to store AgentContribution records in Cosmos DB with input_data, output_result, confidence_score, execution_time_ms)
+- [X] T062 [P] [US4] Create ExplainabilityPanel component in frontend/src/components/ExplainabilityPanel/ExplainabilityPanel.tsx (agent breakdown with icons for each agent type, collapsible sections for input/output, data source references with timestamps, confidence score visualizations)
+- [X] T063 [US4] Update RecommendationDetail component in frontend/src/components/RecommendationDetail/RecommendationDetail.tsx (add "Show reasoning" button, modal/drawer to display ExplainabilityPanel)
 
 **Checkpoint**: User Story 4 complete - explainability enables trust and troubleshooting
 
@@ -155,19 +155,19 @@
 
 **Purpose**: Production readiness, performance optimization, and final polish
 
-- [ ] T064 [P] Add Redis caching for customer profile lookups in backend/src/services/customer_service.py (5-minute TTL per quickstart.md optimization tip)
-- [ ] T065 [P] Add Redis caching for Fabric IQ queries in backend/src/services/fabric_client.py (cache usage trends with 1-hour TTL)
-- [ ] T066 [P] Implement circuit breaker pattern for Fabric IQ and Foundry IQ clients in backend/src/services/fabric_client.py and backend/src/services/foundry_client.py (graceful degradation per FR-017)
+- [X] T064 [P] Add Redis caching for customer profile lookups in backend/src/services/customer_service.py (5-minute TTL per quickstart.md optimization tip)
+- [X] T065 [P] Add Redis caching for Fabric IQ queries in backend/src/services/fabric_client.py (cache usage trends with 1-hour TTL)
+- [X] T066 [P] Implement circuit breaker pattern for Fabric IQ and Foundry IQ clients in backend/src/services/fabric_client.py and backend/src/services/foundry_client.py (graceful degradation per FR-017)
 - [ ] T067 [P] Configure alerts in infrastructure/bicep/monitoring.bicep (recommendation latency >2s, orchestration failures, service health degradation)
 - [ ] T068 [P] Implement Purview integration for audit trails in backend/src/services/customer_service.py and backend/src/services/recommendation_service.py (log customer data access and recommendation deliveries per FR-020)
-- [ ] T069 Add API response compression in backend/src/main.py (gzip middleware for responses >1KB)
+- [X] T069 Add API response compression in backend/src/main.py (gzip middleware for responses >1KB)
 - [ ] T070 [P] Optimize frontend bundle size (code splitting, lazy loading routes, tree shaking in frontend/package.json build config)
 - [ ] T071 [P] Add loading skeletons and optimistic UI updates in frontend/src/components/ (improve perceived performance)
 - [ ] T072 Create end-to-end test suite in frontend/tests/e2e/ using Playwright (test US1: search + profile + recommendations, test US3: history tab, test US4: explainability panel)
 - [ ] T073 [P] Create load test suite using Locust in backend/tests/load/ (test 100+ concurrent agents, verify <2s p95 latency per SC-003)
 - [ ] T074 Run security scan with Azure Defender for Cloud (verify no hardcoded secrets, validate Managed Identity usage, check for vulnerabilities)
-- [ ] T075 Create deployment documentation in infrastructure/README.md (prerequisites, deployment steps, RBAC configuration, troubleshooting)
-- [ ] T076 Create user guide documentation in docs/USER_GUIDE.md (support agent workflows, manager dashboard usage, explainability interpretation)
+- [X] T075 Create deployment documentation in infrastructure/README.md (prerequisites, deployment steps, RBAC configuration, troubleshooting)
+- [X] T076 Create user guide documentation in docs/USER_GUIDE.md (support agent workflows, manager dashboard usage, explainability interpretation)
 
 **Checkpoint**: Production-ready application with all user stories complete
 

@@ -44,6 +44,7 @@ class ReasoningAgent:
         customer_id: UUID,
         retrieval_result: dict[str, Any],
         sentiment_result: dict[str, Any],
+        past_recommendations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Execute reasoning agent workflow.
@@ -51,10 +52,14 @@ class ReasoningAgent:
         Combines retrieval and sentiment data to generate candidate recommendations
         using business rules and AI reasoning patterns.
 
+        Per FR-014 (US3/T057), checks for previously declined recommendations to avoid
+        duplicates or provides re-suggesting reasoning if appropriate.
+
         Args:
             customer_id: Target customer identifier
             retrieval_result: Output from Retrieval Agent (T028)
             sentiment_result: Output from Sentiment Agent (T029)
+            past_recommendations: Historical recommendations from last 12 months (optional)
 
         Returns:
             Dictionary containing:
@@ -77,10 +82,12 @@ class ReasoningAgent:
                 knowledge_articles = retrieval_result.get("knowledge_articles", [])
                 sentiment_score = sentiment_result.get("sentiment_score", 0.0)
                 sentiment_factors = sentiment_result.get("sentiment_factors", [])
+                past_recs = past_recommendations or []
 
                 span.set_attribute("usage_data_count", len(usage_data))
                 span.set_attribute("knowledge_article_count", len(knowledge_articles))
                 span.set_attribute("sentiment_score", sentiment_score)
+                span.set_attribute("past_recommendations_count", len(past_recs))
 
                 # Phase 2: Generate adoption recommendations (FR-003: 2-5 recommendations)
                 adoption_candidates = await self._generate_adoption_recommendations(
@@ -92,7 +99,15 @@ class ReasoningAgent:
                     customer_id, usage_data, knowledge_articles, sentiment_score
                 )
 
-                # Phase 4: Apply sentiment-aware filtering (FR-015)
+                # Phase 4: Check for duplicates/declined recommendations (FR-014 per US3/T057)
+                adoption_candidates = self._filter_past_recommendations(
+                    adoption_candidates, past_recs
+                )
+                upsell_candidates = self._filter_past_recommendations(
+                    upsell_candidates, past_recs
+                )
+
+                # Phase 5: Apply sentiment-aware filtering (FR-015)
                 filtered_adoption = self._apply_sentiment_filter(
                     adoption_candidates, sentiment_score, sentiment_factors
                 )
@@ -100,7 +115,7 @@ class ReasoningAgent:
                     upsell_candidates, sentiment_score, sentiment_factors
                 )
 
-                # Phase 5: Enforce count constraints
+                # Phase 6: Enforce count constraints
                 final_adoption = filtered_adoption[
                     :5
                 ]  # Cap at 5 (FR-003 allows 2-5)
@@ -118,6 +133,7 @@ class ReasoningAgent:
                         "sentiment_factors": sentiment_factors,
                         "usage_patterns_analyzed": len(usage_data),
                         "knowledge_articles_used": len(knowledge_articles),
+                        "past_recommendations_checked": len(past_recs),
                         "filtered_count": len(adoption_candidates)
                         + len(upsell_candidates)
                         - len(final_adoption)
@@ -386,6 +402,105 @@ class ReasoningAgent:
             f"Based on your high usage of {features_str}, consider upgrading to unlock advanced capabilities. "
             f"{benefit}. Your current engagement level indicates strong ROI potential."
         )
+
+    def _filter_past_recommendations(
+        self,
+        recommendations: list[dict[str, Any]],
+        past_recommendations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        Filter out duplicate or recently declined recommendations per FR-014.
+
+        Checks past recommendations (from T055) to avoid suggesting:
+        1. Recently declined recommendations (within 90 days)
+        2. Pending recommendations (not yet delivered)
+        3. Recently accepted recommendations (within 30 days)
+
+        For older declined recommendations (>90 days), allows re-suggesting with
+        updated reasoning if customer context has changed significantly.
+
+        Args:
+            recommendations: List of new recommendation candidates
+            past_recommendations: Historical recommendations from last 12 months
+
+        Returns:
+            Filtered list of recommendations without duplicates
+        """
+        from datetime import datetime, timedelta
+
+        filtered = []
+        now = datetime.utcnow()
+
+        # Build index of past recommendations by text similarity
+        past_by_text = {}
+        for past_rec in past_recommendations:
+            text = past_rec.get("recommendation_text", "").lower().strip()
+            outcome = past_rec.get("outcome_status", "Pending")
+            outcome_timestamp = past_rec.get("outcome_timestamp")
+
+            # Parse outcome timestamp
+            days_since_outcome = None
+            if outcome_timestamp:
+                try:
+                    outcome_dt = datetime.fromisoformat(outcome_timestamp.replace("Z", "+00:00"))
+                    days_since_outcome = (now - outcome_dt).days
+                except Exception:
+                    pass
+
+            past_by_text[text] = {
+                "outcome": outcome,
+                "days_since_outcome": days_since_outcome,
+                "full_rec": past_rec
+            }
+
+        for rec in recommendations:
+            text = rec.get("text_description", "").lower().strip()
+
+            # Check for similar past recommendation
+            if text in past_by_text:
+                past = past_by_text[text]
+                outcome = past["outcome"]
+                days_since = past["days_since_outcome"]
+
+                # Rule 1: Filter if recently declined (within 90 days)
+                if outcome == "Declined" and days_since is not None and days_since < 90:
+                    logger.info(
+                        f"Filtering recommendation due to recent decline ({days_since} days ago): {text[:50]}..."
+                    )
+                    continue
+
+                # Rule 2: Filter if still pending delivery
+                if outcome == "Pending":
+                    logger.info(
+                        f"Filtering recommendation as it's already pending: {text[:50]}..."
+                    )
+                    continue
+
+                # Rule 3: Filter if recently accepted (within 30 days)
+                if outcome == "Accepted" and days_since is not None and days_since < 30:
+                    logger.info(
+                        f"Filtering recommendation due to recent acceptance ({days_since} days ago): {text[:50]}..."
+                    )
+                    continue
+
+                # Rule 4: Allow re-suggesting if declined long ago (>90 days) or accepted long ago (>30 days)
+                # Add re-suggestion reasoning to metadata
+                if outcome == "Declined" and days_since is not None and days_since >= 90:
+                    rec["reasoning_chain"]["re_suggestion"] = {
+                        "previous_outcome": "Declined",
+                        "days_since_previous": days_since,
+                        "rationale": "Re-suggesting after 90+ days as customer context may have changed"
+                    }
+                    logger.info(
+                        f"Re-suggesting previously declined recommendation after {days_since} days: {text[:50]}..."
+                    )
+
+            filtered.append(rec)
+
+        logger.info(
+            f"Filtered {len(recommendations) - len(filtered)} duplicate/declined recommendations"
+        )
+        return filtered
 
     def _calculate_recommendation_confidence(
         self, knowledge_relevance: float, usage_count: int, sentiment_score: float

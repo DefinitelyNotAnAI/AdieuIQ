@@ -134,4 +134,20 @@ export function getErrorMessage(error: unknown): string {
   return 'An unexpected error occurred';
 }
 
+/**
+ * Get recommendation explainability with agent contributions (T060)
+ */
+export async function getExplainability(recommendationId: string): Promise<{
+  recommendation: any;
+  agent_contributions: any[];
+}> {
+  try {
+    const response = await api.get(`/recommendations/${recommendationId}/explainability`);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch explainability:', error);
+    throw error;
+  }
+}
+
 export default api;

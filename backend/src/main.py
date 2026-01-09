@@ -5,6 +5,7 @@ Constitutional compliance: Security, Observability, CORS, Health checks
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
@@ -60,6 +61,13 @@ app = FastAPI(
 # Get settings
 settings = get_settings()
 
+# Add response compression (T069 - compress responses >1KB)
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1024,  # Compress responses larger than 1KB
+    compresslevel=6  # Balance between speed and compression ratio
+)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -105,11 +113,12 @@ async def root():
     }
 
 
-# API route registration (to be added as routes are implemented)
-# from src.api import customers, recommendations, history
-# app.include_router(customers.router, prefix="/api/v1")
-# app.include_router(recommendations.router, prefix="/api/v1")
-# app.include_router(history.router, prefix="/api/v1")
+# API route registration
+from src.api import customers, recommendations, history
+
+app.include_router(customers.router, prefix="/api/v1")
+app.include_router(recommendations.router, prefix="/api/v1")
+app.include_router(history.router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

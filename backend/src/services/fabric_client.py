@@ -10,15 +10,18 @@ Constitutional Compliance:
 - No hardcoded credentials or API keys
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import redis.asyncio as redis
 from azure.core.credentials import TokenCredential
 from azure.identity import DefaultAzureCredential
 
+from ..core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from ..core.config import settings
 from ..core.observability import get_tracer
 from ..models.usage_data import IntensityScore, UsageData
@@ -37,12 +40,42 @@ class FabricIQClient:
 
     def __init__(self, credential: TokenCredential | None = None):
         """
-        Initialize Fabric IQ client.
+        Initialize Fabric IQ client with Redis caching and circuit breaker (T065, T066).
 
         Args:
             credential: Azure credential for authentication. If None, uses DefaultAzureCredential.
         """
         self.use_mock = os.getenv("ENV") == "local"
+
+        # Initialize circuit breaker (T066 - graceful degradation per FR-017)
+        self.circuit_breaker = CircuitBreaker(
+            name="Fabric IQ",
+            failure_threshold=5,  # Open after 5 failures
+            timeout=60.0,  # Wait 60s before retry
+            half_open_max_calls=1  # Test with 1 call in HALF_OPEN state
+        )
+
+        # Initialize Redis client (T065 - caching for usage trends)
+        redis_hostname = os.getenv("REDIS_HOSTNAME")
+        redis_port = int(os.getenv("REDIS_PORT", "6380"))
+        redis_password = os.getenv("REDIS_ACCESS_KEY")
+        
+        if self.use_mock or not redis_hostname:
+            logger.info("Redis caching disabled (local mode or REDIS_HOSTNAME not set)")
+            self.redis_client = None
+        else:
+            try:
+                self.redis_client = redis.Redis(
+                    host=redis_hostname,
+                    port=redis_port,
+                    password=redis_password,
+                    ssl=True,
+                    decode_responses=True
+                )
+                logger.info(f"FabricIQClient: Redis initialized for caching")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Redis client: {e}. Caching disabled.")
+                self.redis_client = None
 
         if self.use_mock:
             logger.info("FabricIQClient initialized in MOCK mode (ENV=local)")
@@ -57,7 +90,12 @@ class FabricIQClient:
         self, customer_id: UUID, days: int = 90
     ) -> list[UsageData]:
         """
-        Get customer usage trends for the past N days.
+        Get customer usage trends with Redis caching (T065).
+
+        Cache Strategy (per quickstart.md optimization tip):
+        - Cache key: usage_trends:{customer_id}:{days}
+        - TTL: 1 hour (3600 seconds)
+        - Usage data changes slowly, caching reduces Fabric IQ load
 
         Args:
             customer_id: Target customer identifier
@@ -81,8 +119,51 @@ class FabricIQClient:
                 logger.debug(f"Returning mock usage data for customer {customer_id}")
                 return self._get_mock_usage_data(customer_id, days)
 
-            # Production: Query Fabric IQ semantic layer
-            return await self._query_fabric_iq(customer_id, days)
+            # Try Redis cache first (T065)
+            cache_key = f"usage_trends:{customer_id}:{days}"
+            if self.redis_client:
+                try:
+                    cached_data = await self.redis_client.get(cache_key)
+                    if cached_data:
+                        logger.info(f"Cache HIT for usage trends {customer_id} (days={days})")
+                        span.set_attribute("cache_hit", True)
+                        # Deserialize UsageData objects from JSON
+                        usage_list = json.loads(cached_data)
+                        return [UsageData(**item) for item in usage_list]
+                    else:
+                        logger.debug(f"Cache MISS for usage trends {customer_id}")
+                        span.set_attribute("cache_hit", False)
+                except Exception as e:
+                    logger.warning(f"Redis cache read failed: {e}. Proceeding without cache.")
+                    span.set_attribute("cache_error", str(e))
+
+            # Production: Query Fabric IQ semantic layer with circuit breaker (T066)
+            try:
+                usage_data = await self.circuit_breaker.call(
+                    self._query_fabric_iq, customer_id, days
+                )
+            except CircuitBreakerOpenError as e:
+                logger.warning(f"Circuit breaker open for Fabric IQ: {e}")
+                span.set_attribute("circuit_breaker_open", True)
+                # Graceful degradation: Return empty usage data
+                return []
+
+            # Store in Redis cache with 1-hour TTL (T065)
+            if self.redis_client and usage_data:
+                try:
+                    # Serialize UsageData objects to JSON
+                    usage_dicts = [item.model_dump() for item in usage_data]
+                    await self.redis_client.setex(
+                        cache_key,
+                        3600,  # 1 hour TTL per quickstart.md
+                        json.dumps(usage_dicts, default=str)
+                    )
+                    logger.debug(f"Cached usage trends {customer_id} for 1 hour")
+                except Exception as e:
+                    logger.warning(f"Redis cache write failed: {e}")
+                    span.set_attribute("cache_write_error", str(e))
+
+            return usage_data
 
     async def _query_fabric_iq(
         self, customer_id: UUID, days: int

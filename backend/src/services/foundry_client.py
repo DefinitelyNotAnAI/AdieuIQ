@@ -19,6 +19,7 @@ from uuid import UUID
 from azure.core.credentials import TokenCredential
 from azure.identity import DefaultAzureCredential
 
+from ..core.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from ..core.config import settings
 from ..core.observability import get_tracer
 
@@ -83,12 +84,20 @@ class FoundryIQClient:
 
     def __init__(self, credential: TokenCredential | None = None):
         """
-        Initialize Foundry IQ client.
+        Initialize Foundry IQ client with circuit breaker (T066).
 
         Args:
             credential: Azure credential for authentication. If None, uses DefaultAzureCredential.
         """
         self.use_mock = os.getenv("ENV") == "local"
+
+        # Initialize circuit breaker (T066 - graceful degradation per FR-017)
+        self.circuit_breaker = CircuitBreaker(
+            name="Foundry IQ",
+            failure_threshold=5,  # Open after 5 failures
+            timeout=60.0,  # Wait 60s before retry
+            half_open_max_calls=1  # Test with 1 call in HALF_OPEN state
+        )
 
         if self.use_mock:
             logger.info("FoundryIQClient initialized in MOCK mode (ENV=local)")
@@ -135,8 +144,17 @@ class FoundryIQClient:
                 logger.debug(f"Returning mock knowledge articles for query: {query}")
                 return self._get_mock_knowledge_articles(query, top_k)
 
-            # Production: Query Foundry IQ knowledge base
-            return await self._query_foundry_iq(query, top_k, category_filter)
+            # Production: Query Foundry IQ knowledge base with circuit breaker (T066)
+            try:
+                articles = await self.circuit_breaker.call(
+                    self._query_foundry_iq, query, top_k, category_filter
+                )
+                return articles
+            except CircuitBreakerOpenError as e:
+                logger.warning(f"Circuit breaker open for Foundry IQ: {e}")
+                span.set_attribute("circuit_breaker_open", True)
+                # Graceful degradation: Return empty articles list
+                return []
 
     async def _query_foundry_iq(
         self, query: str, top_k: int, category_filter: str | None

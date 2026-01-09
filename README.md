@@ -11,7 +11,7 @@
 ---
 
 ## Overview
-Adieu IQ is an **Azure-native AI-powered recommendation engine** that transforms how customer service interactions end. Instead of the generic *"Is there anything else I can help you with today?"*, AdieuIQ analyzes real customer usage patterns and queues up **personalized, high-value suggestions** for agents to share at the close of a conversation.
+Adieu IQ is an **Azure-native AI-powered recommendation engine** that transforms how customer service interactions end. Instead of the generic *"Is there anything else I can help you with today?"*, Adieu IQ analyzes real customer usage patterns and queues up **personalized, high-value suggestions** for agents to share at the close of a conversation.
 
 These suggestions help customers:
 - 🎯 Unlock **unused features** in their current product

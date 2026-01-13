@@ -10,6 +10,24 @@ param appInsightsConnectionString string
 param cosmosDbEndpoint string
 param redisHostname string
 
+// Environment-specific SKU configuration for cost optimization
+var skuConfig = {
+  dev: {
+    name: 'F1'  // Free tier for dev/demo: No cost, no quota required
+    tier: 'Free'
+  }
+  staging: {
+    name: 'B1'  // Basic B1 tier for staging/demo (~$13/month)
+    tier: 'Basic'
+  }
+  prod: {
+    name: 'P1v3'  // Premium tier for production readiness (~$146/month)
+    tier: 'PremiumV3'
+  }
+}
+
+var selectedSku = skuConfig[environment]
+
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: appServicePlanName
   location: location
@@ -19,8 +37,8 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   }
   kind: 'linux'
   sku: {
-    name: 'P1v3'  // Premium tier for production readiness
-    tier: 'PremiumV3'
+    name: selectedSku.name
+    tier: selectedSku.tier
     capacity: 1
   }
   properties: {
@@ -43,7 +61,7 @@ resource appService 'Microsoft.Web/sites@2023-01-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'PYTHON|3.11'
-      alwaysOn: true
+      alwaysOn: environment == 'prod' ? true : false  // Disable always-on for dev/staging to reduce costs
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       appSettings: [

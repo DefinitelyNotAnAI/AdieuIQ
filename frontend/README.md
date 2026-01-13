@@ -1,6 +1,6 @@
-# Customer Recommendation Engine - Frontend
+# Contoso Resorts - Guest Experience Intelligence Platform
 
-React + TypeScript frontend for customer recommendation system.
+React + TypeScript frontend for guest recommendation and experience management system.
 
 ## Requirements
 

@@ -6,6 +6,16 @@ param environment string
 param logAnalyticsName string
 param appInsightsName string
 
+// Environment-specific retention configuration for cost optimization
+// Note: PerGB2018 SKU requires minimum 30 days retention or 7 days (but must be 30-730 days)
+var retentionConfig = {
+  dev: 30      // 30-day minimum for PerGB2018 SKU
+  staging: 30  // 30-day retention for staging
+  prod: 30     // 30-day retention for production (~$12.50/month for 5GB)
+}
+
+var retentionDays = retentionConfig[environment]
+
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: logAnalyticsName
   location: location
@@ -17,7 +27,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 30
+    retentionInDays: retentionDays
     features: {
       enableLogAccessUsingOnlyResourcePermissions: true
     }

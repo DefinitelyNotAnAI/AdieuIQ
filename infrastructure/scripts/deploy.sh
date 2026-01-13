@@ -7,6 +7,13 @@ set -e  # Exit on error
 ENVIRONMENT=${1:-dev}
 LOCATION=${2:-eastus}
 
+# Validate environment parameter
+if [[ ! "$ENVIRONMENT" =~ ^(dev|staging|prod)$ ]]; then
+    echo "❌ Invalid environment: $ENVIRONMENT"
+    echo "Usage: ./deploy.sh [dev|staging|prod] [location]"
+    exit 1
+fi
+
 echo "🚀 Deploying AdieuIQ Customer Recommendation Engine"
 echo "Environment: $ENVIRONMENT"
 echo "Location: $LOCATION"
@@ -25,11 +32,13 @@ az account show &> /dev/null || az login
 # Deploy infrastructure
 echo "📦 Deploying infrastructure..."
 DEPLOYMENT_NAME="adieuiq-$(date +%Y%m%d-%H%M%S)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BICEP_FILE="$SCRIPT_DIR/../bicep/main.bicep"
 
 az deployment sub create \
   --name "$DEPLOYMENT_NAME" \
   --location "$LOCATION" \
-  --template-file ../bicep/main.bicep \
+  --template-file "$BICEP_FILE" \
   --parameters environment="$ENVIRONMENT" location="$LOCATION"
 
 # Get outputs

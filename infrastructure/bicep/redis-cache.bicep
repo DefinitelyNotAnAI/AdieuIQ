@@ -4,6 +4,27 @@ param location string
 param environment string
 param redisCacheName string
 
+// Environment-specific SKU configuration for cost optimization
+var skuConfig = {
+  dev: {
+    name: 'Basic'  // Basic tier for dev/demo: 250MB (~$16/month)
+    family: 'C'
+    capacity: 0  // C0 = 250MB
+  }
+  staging: {
+    name: 'Basic'  // Basic tier for staging/demo: 250MB (~$16/month)
+    family: 'C'
+    capacity: 0  // C0 = 250MB
+  }
+  prod: {
+    name: 'Standard'  // Standard tier for production: 1GB with SLA (~$76/month)
+    family: 'C'
+    capacity: 1  // C1 = 1GB
+  }
+}
+
+var selectedSku = skuConfig[environment]
+
 resource redisCache 'Microsoft.Cache/redis@2023-08-01' = {
   name: redisCacheName
   location: location
@@ -13,9 +34,9 @@ resource redisCache 'Microsoft.Cache/redis@2023-08-01' = {
   }
   properties: {
     sku: {
-      name: 'Standard'
-      family: 'C'
-      capacity: 1  // 1GB Standard tier per plan.md
+      name: selectedSku.name
+      family: selectedSku.family
+      capacity: selectedSku.capacity
     }
     enableNonSslPort: false
     minimumTlsVersion: '1.2'

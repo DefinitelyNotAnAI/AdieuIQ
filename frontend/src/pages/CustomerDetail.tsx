@@ -257,3 +257,5 @@ export const CustomerDetail: React.FC = () => {
     </div>
   );
 };
+
+export default CustomerDetail;

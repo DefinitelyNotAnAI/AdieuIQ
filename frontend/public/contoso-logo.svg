@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1122 768" width="1122" height="768">
+  <!-- Background circle -->
+  <circle cx="561" cy="225" r="175" fill="#0078D4" stroke="#0078D4" stroke-width="20"/>
+  <circle cx="561" cy="225" r="155" fill="#fff"/>
+  <circle cx="561" cy="225" r="145" fill="#fff" stroke="#7FBA00" stroke-width="15"/>
+  
+  <!-- Sun -->
+  <circle cx="510" cy="205" r="35" fill="#FFB900"/>
+  <path d="M510 160 l0 10 M510 240 l0 10 M465 205 l10 0 M545 205 l10 0 M475 175 l7 7 M538 238 l7 7 M475 235 l7 -7 M538 172 l7 7" stroke="#FFB900" stroke-width="4"/>
+  
+  <!-- Palm trees -->
+  <g id="palm">
+    <rect x="640" y="260" width="12" height="80" fill="#7FBA00" rx="3"/>
+    <path d="M646 260 Q620 230 600 210 Q630 225 646 260 M646 260 Q650 220 650 195 Q650 225 646 260 M646 260 Q672 230 692 210 Q662 225 646 260" fill="#7FBA00"/>
+  </g>
+  <g id="palm2" transform="translate(-50,40) scale(0.8)">
+    <rect x="640" y="260" width="12" height="70" fill="#7FBA00" rx="3"/>
+    <path d="M646 260 Q620 230 600 210 Q630 225 646 260 M646 260 Q650 220 650 195 Q650 225 646 260 M646 260 Q672 230 692 210 Q662 225 646 260" fill="#7FBA00"/>
+  </g>
+  
+  <!-- Waves -->
+  <path d="M 400 290 Q 450 275 500 290 T 600 290 T 700 290" stroke="#0078D4" stroke-width="8" fill="none"/>
+  <path d="M 410 305 Q 460 295 510 305 T 610 305 T 710 305" stroke="#0078D4" stroke-width="6" fill="none"/>
+  <path d="M 390 320 Q 440 305 490 320 T 590 320 T 690 320" stroke="#7FBA00" stroke-width="8" fill="none"/>
+  
+  <!-- Text -->
+  <text x="561" y="530" font-family="Arial, sans-serif" font-size="140" font-weight="700" fill="#0078D4" text-anchor="middle">contoso</text>
+  <text x="561" y="640" font-family="Arial, sans-serif" font-size="80" font-weight="400" fill="#0078D4" text-anchor="middle" letter-spacing="15">RESORTS</text>
+</svg>

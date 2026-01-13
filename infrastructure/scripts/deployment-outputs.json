@@ -1,0 +1,12 @@
+{
+  "cosmosDbName": null,
+  "deploymentDate": "2026-01-12 21:08:19",
+  "redisHostname": null,
+  "location": "westus",
+  "environment": "dev",
+  "resourceGroupName": null,
+  "keyVaultName": null,
+  "cosmosDbEndpoint": null,
+  "appServiceName": null,
+  "redisName": null
+}
